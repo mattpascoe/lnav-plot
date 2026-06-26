@@ -1,0 +1,436 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>lnav timeseries explorer</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/dist/chartjs-plugin-zoom.min.js"></script>
+<style>
+  :root {
+    --bg: #0f1419; --panel: #1a2029; --panel2: #232b36; --border: #2e3947;
+    --fg: #d7dde5; --muted: #8a96a6; --accent: #4ea1ff; --accent2: #28c08a;
+    --warn: #e0a33a; --err: #e0564a; --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--fg);
+    font: 14px/1.5 system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+  }
+  header {
+    display: flex; align-items: center; gap: 10px; padding: 8px 16px;
+    background: var(--panel); border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 10;
+  }
+  header h1 { font-size: 14px; margin: 0; font-weight: 600; white-space: nowrap; }
+  header .sep { width: 1px; height: 20px; background: var(--border); flex-shrink: 0; }
+  header input {
+    font: inherit; color: var(--fg); background: var(--panel2);
+    border: 1px solid var(--border); border-radius: 6px; padding: 5px 8px; font-size: 13px;
+  }
+  header input:focus { outline: none; border-color: var(--accent); }
+  header #baseUrl { width: 200px; }
+  header #apiKey  { width: 160px; }
+  header button {
+    font: inherit; cursor: pointer; background: var(--accent); color: #06121f;
+    border: none; border-radius: 6px; padding: 5px 12px; font-weight: 600; font-size: 13px; white-space: nowrap;
+  }
+  header button:hover { filter: brightness(1.08); }
+  main { padding: 16px; display: flex; flex-direction: column; gap: 16px; }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; }
+  .card > h2 {
+    font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted);
+    margin: 0; padding: 10px 14px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 8px;
+  }
+  .card > h2 .num {
+    display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px;
+    border-radius: 50%; background: var(--panel2); color: var(--accent); font-size: 11px;
+  }
+  .card .body { padding: 14px; display: flex; flex-direction: column; gap: 12px; }
+  .row { display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-end; }
+  .field { display: flex; flex-direction: column; gap: 4px; }
+  .field.grow { flex: 1 1 220px; }
+  label { font-size: 12px; color: var(--muted); }
+  input, select, textarea, button {
+    font: inherit; color: var(--fg); background: var(--panel2);
+    border: 1px solid var(--border); border-radius: 6px; padding: 7px 9px;
+  }
+  input:focus, select:focus, textarea:focus { outline: none; border-color: var(--accent); }
+  textarea { font-family: var(--mono); font-size: 12.5px; resize: vertical; min-height: 76px; width: 100%; }
+  button {
+    cursor: pointer; background: var(--accent); color: #06121f; border: none; font-weight: 600;
+  }
+  button:hover { filter: brightness(1.08); }
+  button.secondary { background: var(--panel2); color: var(--fg); border: 1px solid var(--border); font-weight: 500; }
+  button:disabled { opacity: .5; cursor: default; }
+  .pill {
+    display: inline-flex; align-items: center; gap: 6px; padding: 4px 9px; border-radius: 999px;
+    font-size: 12px; background: var(--panel2); border: 1px solid var(--border); color: var(--muted);
+    white-space: nowrap;
+  }
+  .pill .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex-shrink: 0; }
+  .pill.ok .dot { background: var(--accent2); } .pill.ok { color: var(--accent2); }
+  .pill.bad .dot { background: var(--err); }    .pill.bad { color: var(--err); }
+  .hint { font-size: 12px; color: var(--muted); }
+  .hint code, code { font-family: var(--mono); background: var(--panel2); padding: 1px 5px; border-radius: 4px; font-size: 12px; }
+  table { border-collapse: collapse; width: 100%; font-size: 12.5px; }
+  th, td { text-align: left; padding: 5px 9px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  th { color: var(--muted); font-weight: 600; position: sticky; top: 0; background: var(--panel); }
+  .tablewrap { max-height: 280px; overflow: auto; border: 1px solid var(--border); border-radius: 6px; }
+  td.num, th.num { text-align: right; font-family: var(--mono); }
+  .chips { display: flex; gap: 6px; flex-wrap: wrap; }
+  .chip {
+    display: inline-flex; align-items: center; gap: 5px; padding: 3px 8px; border-radius: 6px;
+    background: var(--panel2); border: 1px solid var(--border); font-size: 12px; cursor: pointer; user-select: none;
+  }
+  .chip.on { border-color: var(--accent); color: var(--accent); }
+  .chip .sw { width: 10px; height: 10px; border-radius: 2px; background: var(--muted); }
+  #chartCard .body { gap: 8px; }
+  .chartbox { position: relative; height: 340px; }
+  .statusline { font-size: 12px; color: var(--muted); min-height: 16px; }
+  .statusline.err { color: var(--err); }
+  details summary { cursor: pointer; color: var(--muted); font-size: 12px; }
+  pre.raw { font-family: var(--mono); font-size: 11.5px; background: #0a0e12; padding: 10px; border-radius: 6px; overflow: auto; max-height: 200px; color: #9fb3c8; }
+</style>
+</head>
+<body>
+<header>
+  <span>🌐</span>
+  <h1>lnav timeseries explorer</h1>
+  <div class="sep"></div>
+  <input id="baseUrl" placeholder="base URL (blank = proxy)" title="Leave blank when using node serve.js proxy" />
+  <input id="apiKey" value="mykey" autocomplete="off" />
+  <button id="connectBtn">Connect</button>
+  <span class="pill" id="connPill"><span class="dot"></span><span id="connText">not connected</span></span>
+</header>
+
+<main>
+  <!-- 1. QUERY -->
+  <section class="card">
+    <h2><span class="num">1</span> Query</h2>
+    <div class="body">
+      <div class="field">
+        <label>lnav script — sent to <code>POST /api/exec</code></label>
+        <textarea id="script" spellcheck="false" style="min-height:140px">;SELECT log_time, log_hostname, log_procname, log_body
+  FROM syslog_log
+  WHERE log_body LIKE '%'
+  ORDER BY log_time
+  LIMIT 2000
+:write-json-to -</textarea>
+      </div>
+      <div class="row">
+        <button id="runBtn">Run query</button>
+        <span class="statusline" id="runStatus" style="align-self:center"></span>
+      </div>
+    </div>
+  </section>
+
+  <!-- 2. EXTRACT FIELDS -->
+  <section class="card" id="extractCard" style="display:none">
+    <h2><span class="num">2</span> Extract fields</h2>
+    <div class="body">
+      <div class="field">
+        <label>Optional: extract numbers from a text column with a regex (named groups become new numeric columns)</label>
+        <div class="row">
+          <div class="field" style="flex:0 0 200px">
+            <label class="hint">source column</label>
+            <select id="rxCol"></select>
+          </div>
+          <div class="field grow">
+            <label class="hint">regex — e.g. <code>rx=(?&lt;rx&gt;\d+) tx=(?&lt;tx&gt;\d+)</code></label>
+            <input id="rxPattern" placeholder="dur=(?<dur_ms>\d+)" />
+          </div>
+          <div class="field">
+            <label class="hint">&nbsp;</label>
+            <button id="rxApply" class="secondary">Apply extract</button>
+          </div>
+        </div>
+        <div class="hint" id="rxStatus"></div>
+      </div>
+      <div class="tablewrap"><table id="resultsTbl"></table></div>
+      <div class="hint" id="rowCount"></div>
+      <details>
+        <summary>raw response from lnav</summary>
+        <pre class="raw" id="rawOut"></pre>
+      </details>
+    </div>
+  </section>
+
+  <!-- 3. PLOT -->
+  <section class="card" id="chartCard" style="display:none">
+    <h2><span class="num">3</span> Plot over time</h2>
+    <div class="body">
+      <div class="row">
+        <div class="field" style="flex:0 0 200px">
+          <label>X axis (time)</label>
+          <select id="xCol"></select>
+        </div>
+        <div class="field" style="flex:0 0 220px">
+          <label>Series split (optional)</label>
+          <select id="seriesCol"><option value="">— single series —</option></select>
+        </div>
+        <div class="field grow">
+          <label>Y values (numeric — click to toggle)</label>
+          <div class="chips" id="yChips"></div>
+        </div>
+        <div class="field">
+          <label>&nbsp;</label>
+          <button id="resetZoom" class="secondary">Reset zoom</button>
+        </div>
+      </div>
+      <div class="hint">Scroll/pinch to zoom the time axis · drag to pan · double-click or "Reset zoom" to fit.</div>
+      <div class="chartbox"><canvas id="chart"></canvas></div>
+    </div>
+  </section>
+</main>
+
+<script>
+const state = {
+  rows: [],
+  cols: [],
+  numericCols: [],
+  yCols: new Set(),
+  chart: null,
+};
+const $ = id => document.getElementById(id);
+
+/* ------------------------------------------------------------------ *
+ *  connection
+ * ------------------------------------------------------------------ */
+function setConn(kind, text) {
+  $('connPill').className = 'pill' + (kind === 'ok' ? ' ok' : kind === 'bad' ? ' bad' : '');
+  $('connText').textContent = text;
+}
+
+function authHeaders(extra) {
+  const key = $('apiKey').value.trim();
+  const h = Object.assign({}, extra || {});
+  if (key) h['X-Api-Key'] = btoa(key);
+  return h;
+}
+
+$('connectBtn').addEventListener('click', async () => {
+  setConn('idle', 'connecting…');
+  try {
+    const url = $('baseUrl').value.trim().replace(/\/+$/, '') + '/api/version';
+    let res;
+    try { res = await fetch(url, { headers: authHeaders() }); }
+    catch (err) { throw new Error(netHint(err)); }
+    const body = await res.text();
+    if (!res.ok) throw new Error('HTTP ' + res.status + ': ' + body.slice(0, 200));
+    setConn('ok', 'connected · ' + body.trim());
+  } catch (err) {
+    setConn('bad', 'error');
+    $('runStatus').className = 'statusline err';
+    $('runStatus').textContent = err.message;
+  }
+});
+
+async function exec(script) {
+  const url = $('baseUrl').value.trim().replace(/\/+$/, '') + '/api/exec';
+  let res;
+  try {
+    res = await fetch(url, {
+      method: 'POST',
+      headers: authHeaders({ 'Content-Type': 'text/x-lnav-script' }),
+      body: script,
+    });
+  } catch (err) { throw new Error(netHint(err)); }
+  const text = await res.text();
+  if (!res.ok) throw new Error('HTTP ' + res.status + ': ' + text.slice(0, 300));
+  return text;
+}
+
+function netHint(err) {
+  if (err instanceof TypeError) {
+    return 'request blocked by the browser (no response readable). lnav probably DID run it ' +
+           '— that\'s why its views changed — but it sends no CORS headers. Fix: run ' +
+           '`node serve.js <lnav-port>` and open the proxy URL with the base URL field blank. ' +
+           'Original: ' + err.message;
+  }
+  return err.message;
+}
+
+/* ------------------------------------------------------------------ *
+ *  run query
+ * ------------------------------------------------------------------ */
+$('runBtn').addEventListener('click', runQuery);
+
+async function runQuery() {
+  const status = $('runStatus');
+  status.className = 'statusline'; status.textContent = 'running…';
+  try {
+    const raw = await exec($('script').value);
+    $('rawOut').textContent = raw;
+    const rows = parseRows(raw);
+    loadRows(rows);
+    status.textContent = `${rows.length} rows`;
+  } catch (err) {
+    status.className = 'statusline err';
+    status.textContent = err.message;
+  }
+}
+
+function parseRows(text) {
+  const t = text.trim();
+  if (!t) return [];
+  try {
+    const j = JSON.parse(t);
+    if (Array.isArray(j)) return j;
+    if (j && Array.isArray(j.rows)) return j.rows;
+    if (j && typeof j === 'object') return [j];
+  } catch (_) {
+    const lines = t.split('\n').map(s => s.trim()).filter(Boolean);
+    const objs = [];
+    for (const ln of lines) { try { objs.push(JSON.parse(ln)); } catch (_) {} }
+    if (objs.length) return objs;
+  }
+  throw new Error('Could not parse response as JSON — see raw output.');
+}
+
+/* ------------------------------------------------------------------ *
+ *  load rows -> table + column detection + chart controls
+ * ------------------------------------------------------------------ */
+function loadRows(rows) {
+  state.rows = rows;
+  state.cols = rows.length ? Object.keys(rows[0]) : [];
+  detectNumeric();
+  renderTable();
+  populateExtractCol();
+  populateChartControls();
+  $('extractCard').style.display = rows.length ? 'block' : 'none';
+  $('chartCard').style.display = rows.length ? 'block' : 'none';
+  $('rowCount').textContent = `${rows.length} rows · ${state.cols.length} columns · numeric: ${state.numericCols.join(', ') || '(none detected)'}`;
+}
+
+function isNum(v) { return v !== null && v !== '' && v !== undefined && !isNaN(Number(v)); }
+function detectNumeric() {
+  state.numericCols = state.cols.filter(c => {
+    const sample = state.rows.filter(r => r[c] !== null && r[c] !== '' && r[c] !== undefined).slice(0, 20);
+    return sample.length > 0 && sample.every(r => isNum(r[c]));
+  });
+}
+
+function renderTable() {
+  const tbl = $('resultsTbl');
+  const head = '<tr>' + state.cols.map(c =>
+    `<th class="${state.numericCols.includes(c) ? 'num' : ''}">${esc(c)}</th>`).join('') + '</tr>';
+  const body = state.rows.slice(0, 200).map(r => '<tr>' + state.cols.map(c =>
+    `<td class="${state.numericCols.includes(c) ? 'num' : ''}">${esc(r[c])}</td>`).join('') + '</tr>').join('');
+  tbl.innerHTML = head + body;
+}
+function esc(v) { return String(v ?? '').replace(/[&<>]/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[ch])); }
+
+/* ------------------------------------------------------------------ *
+ *  regex field extraction (client-side)
+ * ------------------------------------------------------------------ */
+function populateExtractCol() {
+  const def = state.cols.includes('log_body') ? 'log_body' : state.cols[0];
+  $('rxCol').innerHTML = state.cols.map(c => `<option ${c === def ? 'selected' : ''}>${esc(c)}</option>`).join('');
+}
+
+$('rxApply').addEventListener('click', () => {
+  const col = $('rxCol').value, pat = $('rxPattern').value.trim();
+  if (!pat) { $('rxStatus').textContent = 'enter a regex with (?<name>...) groups'; return; }
+  let re;
+  try { re = new RegExp(pat); } catch (e) { $('rxStatus').textContent = 'bad regex: ' + e.message; return; }
+  let matched = 0; const newCols = new Set();
+  for (const row of state.rows) {
+    const m = re.exec(String(row[col] ?? ''));
+    if (m && m.groups) { matched++; for (const [k, v] of Object.entries(m.groups)) { row[k] = v; newCols.add(k); } }
+  }
+  for (const c of newCols) if (!state.cols.includes(c)) state.cols.push(c);
+  detectNumeric(); renderTable(); populateChartControls();
+  $('rxStatus').textContent = `matched ${matched}/${state.rows.length} rows · added: ${[...newCols].join(', ') || '(none)'}`;
+});
+
+/* ------------------------------------------------------------------ *
+ *  chart controls + render
+ * ------------------------------------------------------------------ */
+function populateChartControls() {
+  const xSel = $('xCol');
+  const timeGuess = state.cols.find(c => /time|date|ts|_at$/i.test(c)) || state.cols[0];
+  xSel.innerHTML = state.cols.map(c => `<option ${c === (xSel.value || timeGuess) ? 'selected' : ''}>${esc(c)}</option>`).join('');
+
+  const sSel = $('seriesCol');
+  const cur = sSel.value;
+  sSel.innerHTML = '<option value="">— single series —</option>' +
+    state.cols.map(c => `<option ${c === cur ? 'selected' : ''}>${esc(c)}</option>`).join('');
+
+  const wrap = $('yChips');
+  if (state.yCols.size === 0 && state.numericCols.length) state.yCols.add(state.numericCols[0]);
+  wrap.innerHTML = state.numericCols.map(c =>
+    `<span class="chip ${state.yCols.has(c) ? 'on' : ''}" data-c="${esc(c)}"><span class="sw"></span>${esc(c)}</span>`
+  ).join('') || '<span class="hint">no numeric columns — use the regex extractor above</span>';
+  wrap.querySelectorAll('.chip').forEach(ch => ch.addEventListener('click', () => {
+    const c = ch.dataset.c; state.yCols.has(c) ? state.yCols.delete(c) : state.yCols.add(c);
+    ch.classList.toggle('on'); renderChart();
+  }));
+  renderChart();
+}
+['xCol','seriesCol'].forEach(id => $(id).addEventListener('change', renderChart));
+
+const PALETTE = ['#4ea1ff','#28c08a','#e0a33a','#e0564a','#b07cf0','#46c6d6','#f08fb0','#9bd45f'];
+
+function renderChart() {
+  const x = $('xCol').value;
+  const seriesCol = $('seriesCol').value;
+  const ys = [...state.yCols];
+  const datasets = [];
+  let ci = 0;
+
+  function toX(v) { const t = Date.parse(v); return isNaN(t) ? Number(v) : t; }
+
+  const groups = seriesCol
+    ? [...new Set(state.rows.map(r => r[seriesCol]))]
+    : [null];
+
+  for (const y of ys) {
+    for (const g of groups) {
+      const pts = state.rows
+        .filter(r => (g === null || r[seriesCol] === g) && isNum(r[y]))
+        .map(r => ({ x: toX(r[x]), y: Number(r[y]) }))
+        .sort((a, b) => a.x - b.x);
+      if (!pts.length) continue;
+      datasets.push({
+        label: (g === null ? y : `${y} · ${g}`),
+        data: pts,
+        borderColor: PALETTE[ci % PALETTE.length],
+        backgroundColor: PALETTE[ci % PALETTE.length] + '33',
+        borderWidth: 1.5, pointRadius: 2, tension: .2,
+      });
+      ci++;
+    }
+  }
+
+  if (state.chart) state.chart.destroy();
+  state.chart = new Chart($('chart'), {
+    type: 'line',
+    data: { datasets },
+    options: {
+      responsive: true, maintainAspectRatio: false, animation: false,
+      interaction: { mode: 'nearest', intersect: false },
+      scales: {
+        x: { type: 'linear', ticks: { color: '#8a96a6', maxTicksLimit: 8,
+              callback: v => new Date(v).toLocaleString([], { month:'short', day:'numeric', hour:'2-digit', minute:'2-digit' }) },
+             grid: { color: '#2e3947' } },
+        y: { ticks: { color: '#8a96a6' }, grid: { color: '#2e3947' } },
+      },
+      plugins: {
+        legend: { labels: { color: '#d7dde5', boxWidth: 12 } },
+        tooltip: { callbacks: { title: items => new Date(items[0].parsed.x).toLocaleString([], { year:'numeric', month:'short', day:'numeric', hour:'2-digit', minute:'2-digit', second:'2-digit' }) } },
+        zoom: {
+          pan:  { enabled: true, mode: 'x', modifierKey: null },
+          zoom: { wheel: { enabled: true }, pinch: { enabled: true }, mode: 'x' },
+          limits: { x: { minRange: 1000 } },
+        },
+      },
+    },
+  });
+}
+
+function resetZoom() { if (state.chart && state.chart.resetZoom) state.chart.resetZoom(); }
+$('resetZoom').addEventListener('click', resetZoom);
+$('chart').addEventListener('dblclick', resetZoom);
+</script>
+</body>
+</html>
