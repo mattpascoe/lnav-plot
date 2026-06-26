@@ -4,17 +4,15 @@ Context and conventions for AI agents working on this project.
 
 ## What this project is
 
-A zero-dependency, single-file browser UI (`lnav-timeseries.html`) for querying a running
+A zero-dependency, single-file browser UI (`app-files/index.html`) for querying a running
 lnav instance via its HTTP API, extracting numeric fields from log lines, and plotting them
 as timeseries. There is no build step, no package.json, no framework. Everything lives in
-one HTML file with inline CSS and inline JS. `serve.js` is a thin Node.js proxy (also
-no dependencies) that exists solely to work around a CORS limitation in lnav's HTTP server.
+one HTML file with inline CSS and inline JS.
 
 ## Files
 
 ```
-lnav-timeseries.html   The entire UI — HTML + CSS + JS in one file
-serve.js               Node proxy: serves the HTML and forwards /api/* to lnav
+app-files/index.html   The entire UI — HTML + CSS + JS in one file
 README.md              User-facing docs
 AGENTS.md              This file
 ```
@@ -25,10 +23,7 @@ AGENTS.md              This file
 # In lnav:
 :external-access 8088 mykey
 
-# In a terminal:
-node serve.js 8088        # proxy listens on :8089 by default
-# Open http://localhost:8089 in a browser
-# Leave the "base URL" field blank; API key defaults to "mykey"
+# Click globe icon in top right of LNAV UI then select "lnav-plot" app from the list.
 ```
 
 ## Architecture
@@ -39,8 +34,6 @@ node serve.js 8088        # proxy listens on :8089 by default
 - `POST /api/exec`    — body is an lnav script (`Content-Type: text/x-lnav-script`);
   returns the script's stdout output as plain text.
 - Auth: every request must carry `X-Api-Key: <base64(api-key)>`.
-- The server binds to `localhost` only and sends **no CORS headers**, which is why
-  `serve.js` is required when the page is not served from lnav's own origin.
 
 ### Query format
 
@@ -58,16 +51,6 @@ statement followed by an output command on its own line:
 
 `:write-json-to -` streams the SQL result as a JSON array to stdout, which becomes the
 HTTP response body. The JS parser (`parseRows`) also accepts NDJSON and `{"rows":[...]}`.
-
-### serve.js proxy
-
-- Serves `lnav-timeseries.html` at `/`.
-- Forwards any request to `/api/*` to `http://127.0.0.1:<lnav-port>` unchanged (headers
-  included), then pipes the response back. This makes the browser think it is talking to
-  one origin, avoiding the CORS block.
-- Adds permissive CORS headers on its own responses so the page can also be opened from
-  other origins if needed.
-- Zero dependencies — plain `http` module only.
 
 ### JS state model (inside lnav-timeseries.html)
 

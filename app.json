@@ -1,0 +1,11 @@
+{
+	"$schema": "https://lnav.org/schemas/config-v1.schema.json",
+	"apps": {
+		"ona": {
+			"lnav-plot": {
+				"root": "app-files",
+				"description": "An LNAV UI for generating timeseries plot graphs"
+			}
+		}
+	}
+}
