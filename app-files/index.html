@@ -23,24 +23,53 @@
   }
   header h1 { font-size: 14px; margin: 0; font-weight: 600; white-space: nowrap; }
   header .sep { width: 1px; height: 20px; background: var(--border); flex-shrink: 0; }
-  header input {
+  header select {
     font: inherit; color: var(--fg); background: var(--panel2);
     border: 1px solid var(--border); border-radius: 6px; padding: 5px 8px; font-size: 13px;
+    max-width: 260px;
   }
-  header input:focus { outline: none; border-color: var(--accent); }
-  header #baseUrl { width: 200px; }
-  header #apiKey  { width: 160px; }
+  header select:focus { outline: none; border-color: var(--accent); }
   header button {
     font: inherit; cursor: pointer; background: var(--accent); color: #06121f;
     border: none; border-radius: 6px; padding: 5px 12px; font-weight: 600; font-size: 13px; white-space: nowrap;
   }
   header button:hover { filter: brightness(1.08); }
+  /* time picker */
+  .timepicker { position: relative; flex-shrink: 0; }
+  .timepicker-panel {
+    display: none; position: absolute; top: calc(100% + 6px); left: 0;
+    background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+    z-index: 20; min-width: 210px; box-shadow: 0 8px 24px #00000060; padding: 6px;
+  }
+  .timepicker-panel.open { display: block; }
+  .timepicker-panel hr { border: none; border-top: 1px solid var(--border); margin: 4px 0; }
+  .preset-btn {
+    display: block; width: 100%; text-align: left; background: transparent;
+    color: var(--fg); border: none; border-radius: 6px; padding: 6px 10px;
+    font: inherit; font-size: 13px; cursor: pointer; font-weight: 400;
+  }
+  .preset-btn:hover { background: var(--panel2); filter: none; }
+  .preset-btn.active { color: var(--accent); font-weight: 600; }
+  #customRange { display: none; flex-direction: column; gap: 6px; padding: 6px 4px 2px; }
+  #customRange label { font-size: 11px; color: var(--muted); margin: 0; }
+  #customRange input { font-size: 12px; padding: 5px 7px; width: 100%; color: var(--fg); background: var(--panel2); border: 1px solid var(--border); border-radius: 6px; }
+  #customRange input:focus { outline: none; border-color: var(--accent); }
+  #customRange button { margin-top: 2px; }
+  /* main layout */
   main { padding: 16px; display: flex; flex-direction: column; gap: 16px; }
   .card { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; }
   .card > h2 {
     font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted);
     margin: 0; padding: 10px 14px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 8px;
+    cursor: pointer; user-select: none;
   }
+  .card > h2:hover { color: var(--fg); }
+  .card > h2::after {
+    content: '▾'; margin-left: auto; font-size: 16px; color: var(--muted); transition: transform .15s;
+  }
+  .card.collapsed > h2 { border-bottom: none; }
+  .card.collapsed > h2::after { transform: rotate(-90deg); }
+  .card.collapsed > .body { display: none; }
   .card > h2 .num {
     display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px;
     border-radius: 50%; background: var(--panel2); color: var(--accent); font-size: 11px;
@@ -97,9 +126,27 @@
   <span>🌐</span>
   <h1>lnav timeseries explorer</h1>
   <div class="sep"></div>
-  <input id="baseUrl" placeholder="base URL (blank = proxy)" title="Leave blank when using node serve.js proxy" />
-  <input id="apiKey" value="mykey" autocomplete="off" />
-  <button id="connectBtn">Connect</button>
+  <select id="fileSelect"><option value="">— all files —</option></select>
+  <div class="timepicker" id="timePicker">
+    <button id="timeBtn" class="secondary">All time ▾</button>
+    <div class="timepicker-panel" id="timePanel">
+      <button class="preset-btn" data-preset="15m">Last 15 min</button>
+      <button class="preset-btn" data-preset="1h">Last 1 hour</button>
+      <button class="preset-btn" data-preset="4h">Last 4 hours</button>
+      <button class="preset-btn" data-preset="24h">Last 24 hours</button>
+      <button class="preset-btn" data-preset="7d">Last 7 days</button>
+      <hr>
+      <button class="preset-btn active" data-preset="all">All time</button>
+      <button class="preset-btn" data-preset="custom">Custom range…</button>
+      <div id="customRange">
+        <label>From</label>
+        <input type="datetime-local" id="timeFrom" />
+        <label>To</label>
+        <input type="datetime-local" id="timeTo" />
+        <button id="applyCustom">Apply</button>
+      </div>
+    </div>
+  </div>
   <span class="pill" id="connPill"><span class="dot"></span><span id="connText">not connected</span></span>
 </header>
 
@@ -109,27 +156,7 @@
     <h2><span class="num">1</span> Query</h2>
     <div class="body">
       <div class="field">
-        <label>lnav script — sent to <code>POST /api/exec</code></label>
-        <textarea id="script" spellcheck="false" style="min-height:140px">;SELECT log_time, log_hostname, log_procname, log_body
-  FROM syslog_log
-  WHERE log_body LIKE '%'
-  ORDER BY log_time
-  LIMIT 2000
-:write-json-to -</textarea>
-      </div>
-      <div class="row">
-        <button id="runBtn">Run query</button>
-        <span class="statusline" id="runStatus" style="align-self:center"></span>
-      </div>
-    </div>
-  </section>
-
-  <!-- 2. EXTRACT FIELDS -->
-  <section class="card" id="extractCard" style="display:none">
-    <h2><span class="num">2</span> Extract fields</h2>
-    <div class="body">
-      <div class="field">
-        <label>Optional: extract numbers from a text column with a regex (named groups become new numeric columns)</label>
+        <label>Post-query: extract numbers from a text column with a regex (named groups become new numeric columns) — transforms results client-side, does not change the SQL</label>
         <div class="row">
           <div class="field" style="flex:0 0 200px">
             <label class="hint">source column</label>
@@ -146,6 +173,26 @@
         </div>
         <div class="hint" id="rxStatus"></div>
       </div>
+      <div class="field">
+        <label>lnav script — the file &amp; time pickers (top bar) rewrite this; edit it freely. Sent verbatim to <code>POST /api/exec</code>.</label>
+        <textarea id="script" spellcheck="false" style="min-height:140px">;SELECT log_time, log_hostname, log_procname, log_body
+  FROM syslog_log
+  WHERE log_body LIKE '%'
+  ORDER BY log_time
+  LIMIT 2000
+:write-json-to -</textarea>
+      </div>
+      <div class="row">
+        <button id="runBtn">Run query</button>
+        <span class="statusline" id="runStatus" style="align-self:center"></span>
+      </div>
+    </div>
+  </section>
+
+  <!-- 2. RESULTS -->
+  <section class="card" id="resultsCard" style="display:none">
+    <h2><span class="num">2</span> Results</h2>
+    <div class="body">
       <div class="tablewrap"><table id="resultsTbl"></table></div>
       <div class="hint" id="rowCount"></div>
       <details>
@@ -190,6 +237,8 @@ const state = {
   numericCols: [],
   yCols: new Set(),
   chart: null,
+  timeRange: { start: null, end: null },
+  timePreset: 'all',
 };
 const $ = id => document.getElementById(id);
 
@@ -201,53 +250,160 @@ function setConn(kind, text) {
   $('connText').textContent = text;
 }
 
-function authHeaders(extra) {
-  const key = $('apiKey').value.trim();
-  const h = Object.assign({}, extra || {});
-  if (key) h['X-Api-Key'] = btoa(key);
-  return h;
-}
-
-$('connectBtn').addEventListener('click', async () => {
-  setConn('idle', 'connecting…');
-  try {
-    const url = $('baseUrl').value.trim().replace(/\/+$/, '') + '/api/version';
-    let res;
-    try { res = await fetch(url, { headers: authHeaders() }); }
-    catch (err) { throw new Error(netHint(err)); }
-    const body = await res.text();
-    if (!res.ok) throw new Error('HTTP ' + res.status + ': ' + body.slice(0, 200));
-    setConn('ok', 'connected · ' + body.trim());
-  } catch (err) {
-    setConn('bad', 'error');
-    $('runStatus').className = 'statusline err';
-    $('runStatus').textContent = err.message;
-  }
-});
-
 async function exec(script) {
-  const url = $('baseUrl').value.trim().replace(/\/+$/, '') + '/api/exec';
   let res;
   try {
-    res = await fetch(url, {
+    res = await fetch('/api/exec', {
       method: 'POST',
-      headers: authHeaders({ 'Content-Type': 'text/x-lnav-script' }),
+      headers: { 'Content-Type': 'text/x-lnav-script' },
       body: script,
     });
-  } catch (err) { throw new Error(netHint(err)); }
+  } catch (err) { throw new Error(err.message); }
   const text = await res.text();
   if (!res.ok) throw new Error('HTTP ' + res.status + ': ' + text.slice(0, 300));
   return text;
 }
 
-function netHint(err) {
-  if (err instanceof TypeError) {
-    return 'request blocked by the browser (no response readable). lnav probably DID run it ' +
-           '— that\'s why its views changed — but it sends no CORS headers. Fix: run ' +
-           '`node serve.js <lnav-port>` and open the proxy URL with the base URL field blank. ' +
-           'Original: ' + err.message;
+async function loadFileList() {
+  try {
+    const raw = await exec(';SELECT * FROM lnav_file\n:write-json-to -');
+    const files = parseRows(raw);
+    const sel = $('fileSelect');
+    sel.innerHTML = '<option value="">— all files —</option>' +
+      files.map(f => {
+        const label = `${f.filepath} (${Number(f.lines).toLocaleString()} lines · ${f.format})`;
+        return `<option value="${esc(f.filepath)}" data-format="${esc(f.format)}">${esc(label)}</option>`;
+      }).join('');
+  } catch (_) { /* file list is best-effort */ }
+}
+
+/* ------------------------------------------------------------------ *
+ *  time range picker
+ * ------------------------------------------------------------------ */
+const PRESETS = [
+  { key: '15m',    label: 'Last 15 min',   mins: 15    },
+  { key: '1h',     label: 'Last 1 hour',   mins: 60    },
+  { key: '4h',     label: 'Last 4 hours',  mins: 240   },
+  { key: '24h',    label: 'Last 24 hours', mins: 1440  },
+  { key: '7d',     label: 'Last 7 days',   mins: 10080 },
+  { key: 'all',    label: 'All time',      mins: null  },
+  { key: 'custom', label: 'Custom range…', mins: null  },
+];
+
+function closeTimePanel() {
+  $('timePanel').classList.remove('open');
+}
+
+function updatePresetBtns() {
+  document.querySelectorAll('.preset-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.preset === state.timePreset);
+  });
+}
+
+function applyPreset(key) {
+  state.timePreset = key;
+  const preset = PRESETS.find(p => p.key === key);
+  if (preset.mins !== null) {
+    const end = new Date();
+    const start = new Date(end.getTime() - preset.mins * 60000);
+    state.timeRange = { start, end };
+    $('timeBtn').textContent = preset.label + ' ▾';
+    $('customRange').style.display = 'none';
+    closeTimePanel();
+    syncScript();
+  } else if (key === 'all') {
+    state.timeRange = { start: null, end: null };
+    $('timeBtn').textContent = 'All time ▾';
+    $('customRange').style.display = 'none';
+    closeTimePanel();
+    syncScript();
+  } else {
+    $('customRange').style.display = 'flex';
   }
-  return err.message;
+  updatePresetBtns();
+}
+
+$('timeBtn').addEventListener('click', e => {
+  e.stopPropagation();
+  $('timePanel').classList.toggle('open');
+});
+
+document.querySelectorAll('.preset-btn').forEach(btn => {
+  btn.addEventListener('click', () => applyPreset(btn.dataset.preset));
+});
+
+$('applyCustom').addEventListener('click', () => {
+  const from = $('timeFrom').value;
+  const to   = $('timeTo').value;
+  state.timeRange = {
+    start: from ? new Date(from) : null,
+    end:   to   ? new Date(to)   : null,
+  };
+  const fmt = s => s.replace('T', ' ').slice(0, 16);
+  const label = (from || to)
+    ? `${from ? fmt(from) : '…'} → ${to ? fmt(to) : '…'}`
+    : 'All time';
+  $('timeBtn').textContent = label + ' ▾';
+  state.timePreset = 'custom';
+  updatePresetBtns();
+  closeTimePanel();
+  syncScript();
+});
+
+document.addEventListener('click', e => {
+  if (!$('timePicker').contains(e.target)) closeTimePanel();
+});
+
+$('fileSelect').addEventListener('change', syncScript);
+
+/* ------------------------------------------------------------------ *
+ *  live script sync — structured inputs rewrite the textbox in place,
+ *  preserving manual edits. The textbox is the source of truth sent to
+ *  /api/exec. Each managed fragment is idempotently upserted/removed.
+ * ------------------------------------------------------------------ */
+function fmtDt(d) {
+  const p = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+}
+
+// Add, update, or remove a single WHERE condition identified by `sig`.
+function upsertCondition(script, sig, newText) {
+  const found = sig.test(script);
+  if (newText === null) {
+    if (!found) return script;
+    // try "<cond> AND ", then " AND <cond>", then a lone "WHERE <cond>"
+    let out = script.replace(new RegExp(sig.source + '\\s+AND\\s+', 'i'), '');
+    if (out !== script) return out;
+    out = script.replace(new RegExp('\\s+AND\\s+' + sig.source, 'i'), '');
+    if (out !== script) return out;
+    return script.replace(new RegExp('\\bWHERE\\s+' + sig.source + '\\s*', 'i'), '');
+  }
+  if (found) return script.replace(sig, newText);
+  if (/\bWHERE\b/i.test(script)) return script.replace(/\bWHERE\s+/i, `WHERE ${newText} AND `);
+  return script.replace(/\b(ORDER BY|LIMIT)\b/i, `WHERE ${newText}\n  $1`);
+}
+
+function syncScript() {
+  let script = $('script').value;
+  const opt = $('fileSelect').selectedOptions[0];
+
+  // FROM table — driven by the selected file's format (edit the script by hand to override)
+  const fromTable = opt && opt.dataset.format ? opt.dataset.format.trim() : '';
+  if (fromTable) script = script.replace(/\bFROM\s+\S+/i, `FROM ${fromTable}`);
+
+  // log_path from the file picker ('' = all files)
+  const file = $('fileSelect').value;
+  script = upsertCondition(script, /log_path\s*=\s*'(?:[^']|'')*'/i,
+    file ? `log_path = '${file.replace(/'/g, "''")}'` : null);
+
+  // log_time bounds from the time picker
+  const { start, end } = state.timeRange;
+  script = upsertCondition(script, /log_time\s*>=\s*'[^']*'/i,
+    start ? `log_time >= '${fmtDt(start)}'` : null);
+  script = upsertCondition(script, /log_time\s*<=\s*'[^']*'/i,
+    end ? `log_time <= '${fmtDt(end)}'` : null);
+
+  $('script').value = script;
 }
 
 /* ------------------------------------------------------------------ *
@@ -297,7 +453,7 @@ function loadRows(rows) {
   renderTable();
   populateExtractCol();
   populateChartControls();
-  $('extractCard').style.display = rows.length ? 'block' : 'none';
+  $('resultsCard').style.display = rows.length ? 'block' : 'none';
   $('chartCard').style.display = rows.length ? 'block' : 'none';
   $('rowCount').textContent = `${rows.length} rows · ${state.cols.length} columns · numeric: ${state.numericCols.join(', ') || '(none detected)'}`;
 }
@@ -431,6 +587,23 @@ function renderChart() {
 function resetZoom() { if (state.chart && state.chart.resetZoom) state.chart.resetZoom(); }
 $('resetZoom').addEventListener('click', resetZoom);
 $('chart').addEventListener('dblclick', resetZoom);
+
+// Collapse / expand a section by clicking its title
+document.querySelectorAll('.card > h2').forEach(h =>
+  h.addEventListener('click', () => h.parentElement.classList.toggle('collapsed')));
+
+// Auto-connect on load — session cookie set by :external-access-login handles auth
+window.addEventListener('DOMContentLoaded', async () => {
+  setConn('idle', 'connecting…');
+  try {
+    const res = await fetch('/api/version');
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    setConn('ok', 'connected · ' + (await res.text()).trim());
+    await loadFileList();
+  } catch (err) {
+    setConn('bad', 'error: ' + err.message);
+  }
+});
 </script>
 </body>
 </html>
